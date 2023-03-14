@@ -1,4 +1,4 @@
-# azureChatGPT
+# Azure_ChatGPT
 
 According to the [Azure OpenAI Service Documentation](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?tabs=command-line&pivots=programming-language-python), the GPT-35-Turbo model for Azure OpenAI service only has completion functionality, and cannot perform conversations like the official OpenAI API. 
 
@@ -9,7 +9,7 @@ I have made modifications to the source code of the V3 module in [ChatGPT](https
 Encapsulate Azure OpenAI GPT-35-Turbo model into a chat API. Extensible for chatbots etc.
 
 # Installation
-`git clone git@github.com:EvAnhaodong/azureChatGPT.git`
+`git clone git@github.com:EvAnhaodong/Azure_ChatGPT.git`
 
 `python3 setup.py install`
 
@@ -29,7 +29,7 @@ Modify the configuration file `azure.yaml` and run
  $ python3 -m revChatGPT.V3 -h
 
     ChatGPT - Official azureChatGPT API
-    Repo: github.com/EvAnhaodong/azureChatGPT
+    Repo: github.com/EvAnhaodong/Azure_ChatGPT
     
 Type '!help' to show a full list of commands
 Press Esc followed by Enter or Alt+Enter to send a message.

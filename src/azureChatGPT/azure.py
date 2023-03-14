@@ -305,8 +305,8 @@ def main() -> NoReturn:
     """
     print(
     """
-    ChatGPT - Official azureChatGPT API
-    Repo: github.com/EvAnhaodong/azureChatGPT
+    ChatGPT - Official Azure_ChatGPT API
+    Repo: github.com/EvAnhaodong/Azure_ChatGPT
     """,
     )
     print("Type '!help' to show a full list of commands")
