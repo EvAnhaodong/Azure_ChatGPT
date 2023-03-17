@@ -16,6 +16,7 @@ setup(
         "pyyaml",
         "prompt-toolkit",
         "tiktoken>=0.3.0",
+        "aiohttp==3.8.4",
         "openai>=0.27.2"
     ],
     classifiers=[
