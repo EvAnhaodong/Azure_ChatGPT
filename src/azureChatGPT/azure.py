@@ -128,7 +128,7 @@ class Chatbot:
         prompt += f"<|im_start|>assistant\n"
         return prompt
 
-    def ask(
+    def ask_stream(
         self,
         prompt: str,
         role: str = "user",
@@ -159,12 +159,34 @@ class Chatbot:
                 self.presence_penalty,
             ),
             engine=self.engine,
-            stop=["<im_end|>"],
+            stop=["<|im_end|>"],
+            stream=True
         )
 
         response_role: str = "assistant"
-        full_response: str = response["choices"][0]["text"].strip("<im_end|>\n")
+        full_response: str = ""
+        for line in response:
+            content = line["choices"][0]["text"]
+            full_response += content
+            if content == "<|im_end|>":
+                break
+            yield content
         self.add_to_conversation(full_response, response_role, convo_id=convo_id)
+
+    def ask(
+        self,
+        prompt: str,
+        role: str = "user",
+        convo_id: str = "default",
+        **kwargs,
+    ) -> str:
+        response = self.ask_stream(
+            prompt=prompt,
+            role=role,
+            convo_id=convo_id,
+            **kwargs,
+        )
+        full_response: str = "".join(response)
         return full_response
 
     def rollback(self, n: int = 1, convo_id: str = "default") -> None:
@@ -344,7 +366,11 @@ def main() -> NoReturn:
         default=None,
         help="Custom submit key for chatbot. For more information on keys, see README",
     )
-
+    parser.add_argument(
+        "--no_stream",
+        action="store_true",
+        help="Disable streaming",
+    )
     args = parser.parse_args()
 
     # Initialize chatbot
@@ -402,6 +428,9 @@ def main() -> NoReturn:
             continue
 
         print("ChatGPT: ", flush=True)
-        print(chatbot.ask(prompt, "user"))
-
+        if args.no_stream:
+            print(chatbot.ask(prompt, "user"))
+        else:
+            for query in chatbot.ask_stream(prompt):
+                print(query, end="", flush=True)
         print()
