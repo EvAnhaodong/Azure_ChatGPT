@@ -16,6 +16,7 @@ setup(
         "pyyaml",
         "prompt-toolkit",
         "tiktoken>=0.3.0",
+        "openai>=0.27.2"
     ],
     classifiers=[
         "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
@@ -26,7 +27,5 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    extras_require={
-        "WebGPT": ["duckduckgo_search"],
-    },
+    zip_safe=False,
 )
