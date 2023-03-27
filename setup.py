@@ -1,10 +1,15 @@
 from setuptools import find_namespace_packages
 from setuptools import setup
+from pathlib import Path
+
+PATH = Path("README.md")
 
 setup(
     name="azureChatGPT",
-    version="0.0.1",
+    version="0.0.2",
     description="ChatGPT is a reverse engineering of Azure ChatGPT API",
+    long_description=open(PATH, encoding="utf-8").read(),
+    long_description_content_type="text/markdown",
     url="https://github.com/EvAnhaodong/azureChatGPT",
     author="yehaodong",
     author_email="yehaodong@genomics.cn",

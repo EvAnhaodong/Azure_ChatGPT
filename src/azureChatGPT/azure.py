@@ -116,9 +116,9 @@ class Chatbot:
 
     def get_max_tokens(self, convo_id: str) -> int:
         """
-        Get max tokens
+        Get remaining tokens
         """
-        return self.max_tokens - self.get_token_count(convo_id)
+        return 4000 - self.get_token_count(convo_id)
 
     def __messages2prompt(self, convo_id: str = "default"):
         prompt = "".join(
