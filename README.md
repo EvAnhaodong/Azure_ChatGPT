@@ -26,7 +26,7 @@ Modify the configuration file `azure.yaml` and run
 > You can save or load your YAML at any time during the program's execution, making it easy to restore your work state (including conversation records).
 
 ```
- $ python3 -m revChatGPT.V3 -h
+ $ python3 -m azureChatGPT -h
 
     ChatGPT - Official azureChatGPT API
     Repo: github.com/EvAnhaodong/Azure_ChatGPT
