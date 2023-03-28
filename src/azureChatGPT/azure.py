@@ -86,13 +86,14 @@ class Chatbot:
         """
         Truncate the conversation
         """
+        self.conversation['current'] = list(self.conversation[convo_id])
         while True:
             if (
-                self.get_token_count(convo_id) > self.max_tokens
-                and len(self.conversation[convo_id]) > 1
+                self.get_token_count('current') > self.max_tokens
+                and len(self.conversation['current']) > 1
             ):
                 # Don't remove the first message
-                self.conversation[convo_id].pop(1)
+                self.conversation['current'].pop(1)
             else:
                 break
 
@@ -143,12 +144,11 @@ class Chatbot:
             self.reset(convo_id=convo_id, system_prompt=self.system_prompt)
         self.add_to_conversation(prompt, role, convo_id=convo_id)
         self.__truncate_conversation(convo_id=convo_id)
-        prompt = self.__messages2prompt(convo_id=convo_id)
         # Get response
         response = openai.Completion.create(
-            prompt=prompt,
+            prompt=self.__messages2prompt(convo_id='current'),
             temperature=kwargs.get("temperature", self.temperature),
-            max_tokens=self.get_max_tokens(convo_id=convo_id),
+            max_tokens=self.get_max_tokens(convo_id='current'),
             top_p=kwargs.get("top_p", self.top_p),
             frequency_penalty=kwargs.get(
                 "frequency_penalty",
