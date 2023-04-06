@@ -11,9 +11,8 @@ I have made modifications to the source code of the V3 module in [ChatGPT](https
 Encapsulate Azure OpenAI GPT-3.5-Turbo model and GPT-4 model into a chat API. Extensible for chatbots etc.
 
 # Installation
-`git clone git@github.com:EvAnhaodong/Azure_ChatGPT.git`
 
-`python3 setup.py install`
+`python3 -m pip install azureChatGPT --upgrade`
 
 # Terminal Chat
 
