@@ -29,7 +29,7 @@ class Chatbot:
         api_base: str = "",
         api_type: str = "azure",
         api_version: str = "2023-03-15-preview",
-        max_tokens: int = 3000,
+        max_tokens: dict = {"gpt-3.5-turbo": 3000, "gpt-4": 7000},
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -59,11 +59,6 @@ class Chatbot:
                 },
             ],
         }
-        if max_tokens > 4000:
-            raise Exception("Max tokens cannot be greater than 4000")
-
-        if self.get_token_count("default") > self.max_tokens:
-            raise Exception("System prompt is too long")
 
     def init_openai(self):
         openai.api_type = self.api_type
@@ -75,25 +70,35 @@ class Chatbot:
         self,
         message: str,
         role: str,
+        name: str = "",
         convo_id: str = "default",
     ) -> None:
         """
         Add a message to the conversation
         """
-        self.conversation[convo_id].append({"role": role, "content": message})
+        if not name:
+            self.conversation[convo_id].append({"role": role, "content": message})
+        else:
+            self.conversation[convo_id].append(
+                {"role": role, "name": name, "content": message}
+            )
 
     def __truncate_conversation(self, convo_id: str = "default") -> None:
         """
         Truncate the conversation
         """
-        self.conversation["current"] = list(self.conversation[convo_id])
+        self.conversation["current"] = [
+            dict((key, sentence[key]) for key in sentence if key != "name")
+            for sentence in self.conversation[convo_id]
+        ]
+
         while True:
             if (
-                self.get_token_count("current") > self.max_tokens
+                self.get_token_count("current") > self.max_tokens[self.engine]
                 and len(self.conversation["current"]) > 1
             ):
                 # Don't remove the first message
-                self.conversation["current"].pop(1)
+                del self.conversation["current"][1]
             else:
                 break
 
@@ -102,8 +107,7 @@ class Chatbot:
         """
         Get token count
         """
-        encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-
+        encoding = tiktoken.encoding_for_model(self.engine)
         num_tokens = 0
         for message in self.conversation[convo_id]:
             # every message follows <im_start>{role/name}\n{content}<im_end>\n
@@ -119,14 +123,20 @@ class Chatbot:
         """
         Get remaining tokens
         """
-        return 4000 - self.get_token_count(convo_id)
+        if self.engine == "gpt-3.5-turbo":
+            return 4000 - self.get_token_count(convo_id)
+        elif self.engine == "gpt-4":
+            return 8000 - self.get_token_count(convo_id)
 
     def switch_engine(self):
-        if getattr(self,"engine") and getattr(self,"engine_next"):
-            self.engine, self.engine_next = self.engine_next, self.engine
-            print('switch success')
+        if self.engine == "gpt-3.5-turbo" and getattr(self, "engine_gpt-4"):
+            self.engine = "gpt-4"
+            print("switch success")
+        elif self.engine == "gpt-4" and getattr(self, "engine_gpt-3.5-turbo"):
+            self.engine = "gpt-3.5-turbo"
+            print("switch success")
         else:
-            print('switch fail')
+            print("switch fail")
 
     def ask_stream(
         self,
@@ -156,12 +166,14 @@ class Chatbot:
                 "presence_penalty",
                 self.presence_penalty,
             ),
-            engine=self.engine,
+            engine=getattr(self, "engine_" + self.engine),
             stream=True,
         )
         response_role: str = ""
         full_response: str = ""
+        model: str = ""
         for resp in response:
+            model = resp.get("model")
             choices = resp.get("choices", None)
             if not choices:
                 continue
@@ -174,7 +186,7 @@ class Chatbot:
                 content = delta["content"]
                 full_response += content
                 yield content
-        self.add_to_conversation(full_response, response_role, convo_id=convo_id)
+        self.add_to_conversation(full_response, response_role, model, convo_id=convo_id)
 
     def ask(
         self,
@@ -206,6 +218,9 @@ class Chatbot:
         self.conversation[convo_id] = [
             {"role": "system", "content": system_prompt or self.system_prompt},
         ]
+
+        if self.get_token_count(convo_id) > self.max_tokens["gpt-3.5-turbo"]:
+            raise Exception("System prompt is too long")
 
     def save(self, file: str, *keys: str) -> None:
         """
@@ -434,7 +449,7 @@ def main() -> NoReturn:
                 print(f"Error: {e}")
             continue
 
-        print("ChatGPT: ", flush=True)
+        print(chatbot.engine + " ChatGPT: ", flush=True)
         if args.no_stream:
             print(chatbot.ask(prompt, "user"))
         else:
