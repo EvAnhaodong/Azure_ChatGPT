@@ -28,7 +28,7 @@ class Chatbot:
         engine: str = "",
         api_base: str = "",
         api_type: str = "azure",
-        api_version: str = "2022-12-01",
+        api_version: str = "2023-03-15-preview",
         max_tokens: int = 3000,
         temperature: float = 0.5,
         top_p: float = 1.0,
@@ -86,14 +86,14 @@ class Chatbot:
         """
         Truncate the conversation
         """
-        self.conversation['current'] = list(self.conversation[convo_id])
+        self.conversation["current"] = list(self.conversation[convo_id])
         while True:
             if (
-                self.get_token_count('current') > self.max_tokens
-                and len(self.conversation['current']) > 1
+                self.get_token_count("current") > self.max_tokens
+                and len(self.conversation["current"]) > 1
             ):
                 # Don't remove the first message
-                self.conversation['current'].pop(1)
+                self.conversation["current"].pop(1)
             else:
                 break
 
@@ -121,13 +121,12 @@ class Chatbot:
         """
         return 4000 - self.get_token_count(convo_id)
 
-    def __messages2prompt(self, convo_id: str = "default"):
-        prompt = "".join(
-            f"<|im_start|>{i['role']}\n{i['content']}\n<|im_end|>\n"
-            for i in self.conversation[convo_id]
-        )
-        prompt += f"<|im_start|>assistant\n"
-        return prompt
+    def switch_engine(self):
+        if getattr(self,"engine") and getattr(self,"engine_next"):
+            self.engine, self.engine_next = self.engine_next, self.engine
+            print('switch success')
+        else:
+            print('switch fail')
 
     def ask_stream(
         self,
@@ -144,11 +143,10 @@ class Chatbot:
             self.reset(convo_id=convo_id, system_prompt=self.system_prompt)
         self.add_to_conversation(prompt, role, convo_id=convo_id)
         self.__truncate_conversation(convo_id=convo_id)
-        # Get response
-        response = openai.Completion.create(
-            prompt=self.__messages2prompt(convo_id='current'),
+        response = openai.ChatCompletion.create(
+            messages=self.conversation["current"],
             temperature=kwargs.get("temperature", self.temperature),
-            max_tokens=self.get_max_tokens(convo_id='current'),
+            max_tokens=self.get_max_tokens(convo_id="current"),
             top_p=kwargs.get("top_p", self.top_p),
             frequency_penalty=kwargs.get(
                 "frequency_penalty",
@@ -159,18 +157,23 @@ class Chatbot:
                 self.presence_penalty,
             ),
             engine=self.engine,
-            stop=["<|im_end|>"],
-            stream=True
+            stream=True,
         )
-
-        response_role: str = "assistant"
+        response_role: str = ""
         full_response: str = ""
-        for line in response:
-            content = line["choices"][0]["text"]
-            full_response += content
-            if content == "<|im_end|>":
-                break
-            yield content
+        for resp in response:
+            choices = resp.get("choices", None)
+            if not choices:
+                continue
+            delta = choices[0].get("delta", None)
+            if not delta:
+                continue
+            if "role" in delta:
+                response_role = delta["role"]
+            if "content" in delta:
+                content = delta["content"]
+                full_response += content
+                yield content
         self.add_to_conversation(full_response, response_role, convo_id=convo_id)
 
     def ask(
@@ -253,6 +256,7 @@ ChatGPT Configuration:
             """
 Commands:
   !help             Display this message
+  !switch           Switch engine
   !rollback n       Rollback the conversation by n messages
   !save file [keys] Save the Chatbot configuration to a JSON file
   !load file [keys] Load the Chatbot configuration from a JSON file
@@ -287,6 +291,8 @@ Examples:
         elif command == "!reset":
             self.reset(convo_id=convo_id)
             print("\nConversation has been reset")
+        elif command == "!switch":
+            self.switch_engine()
         elif command == "!config":
             self.print_config(convo_id=convo_id)
         elif command == "!rollback":
@@ -326,7 +332,7 @@ def main() -> NoReturn:
     Main function
     """
     print(
-    """
+        """
     ChatGPT - Official Azure_ChatGPT API
     Repo: github.com/EvAnhaodong/Azure_ChatGPT
     """,
@@ -395,6 +401,7 @@ def main() -> NoReturn:
             "!help",
             "!exit",
             "!reset",
+            "!switch",
             "!rollback",
             "!save",
             "!load",
