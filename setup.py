@@ -20,7 +20,7 @@ setup(
     install_requires=[
         "pyyaml",
         "prompt-toolkit",
-        "tiktoken>=0.3.0",
+        "tiktoken>=0.3.3",
         "aiohttp==3.8.4",
         "openai>=0.27.2"
     ],
