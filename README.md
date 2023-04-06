@@ -2,11 +2,13 @@
 
 According to the [Azure OpenAI Service Documentation](https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?tabs=command-line&pivots=programming-language-python), the GPT-35-Turbo model for Azure OpenAI service only has completion functionality, and cannot perform conversations like the official OpenAI API. 
 
+**[2023/3/23 update] Azure update api_version: 2023-03-15-preview. Now we can use openai.ChatCompletion for gpt-3.5-turbo and gpt4.**
+
 Based on the chat prompt construction method provided in the documentation.
 
 I have made modifications to the source code of the V3 module in [ChatGPT](https://github.com/acheong08/ChatGPT).
 
-Encapsulate Azure OpenAI GPT-35-Turbo model into a chat API. Extensible for chatbots etc.
+Encapsulate Azure OpenAI GPT-3.5-Turbo model and GPT-4 model into a chat API. Extensible for chatbots etc.
 
 # Installation
 `git clone git@github.com:EvAnhaodong/Azure_ChatGPT.git`
@@ -15,7 +17,9 @@ Encapsulate Azure OpenAI GPT-35-Turbo model into a chat API. Extensible for chat
 
 # Terminal Chat
 
-Get `api_key`, `api_base`, `engine` from your Azure (API_KEY, ENDPOINT, ENGINE)
+Get `api_key`, `api_base`, `engine_gpt-3.5-turbo`, `engine_gpt-4` from your Azure (API_KEY, ENDPOINT, ENGINE)
+
+`engine` set default engine "gpt-3.5-turbo" or "gpt-4"
 
 Modify the configuration file `azure.yaml` and run 
 
