@@ -88,7 +88,7 @@ class Chatbot:
         Truncate the conversation
         """
         self.conversation["current"] = [
-            dict((key, sentence[key]) for key in sentence if key != "name")
+            dict((key, sentence[key]) for key in ["role", "content"])
             for sentence in self.conversation[convo_id]
         ]
 
