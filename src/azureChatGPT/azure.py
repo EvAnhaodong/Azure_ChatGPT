@@ -6,6 +6,7 @@ import yaml
 import os
 import sys
 from typing import NoReturn
+import time
 
 import openai
 import tiktoken
@@ -28,8 +29,8 @@ class Chatbot:
         engine: str = "",
         api_base: str = "",
         api_type: str = "azure",
-        api_version: str = "2023-03-15-preview",
-        max_tokens: dict = {"gpt-3.5-turbo": 3000, "gpt-4": 7000},
+        api_version: str = "2023-12-01-preview",
+        max_tokens: dict = {"gpt-4-turbo": 20000, "gpt-4":6000},
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -107,33 +108,30 @@ class Chatbot:
         """
         Get token count
         """
-        encoding = tiktoken.encoding_for_model(self.engine)
+        encoding = tiktoken.encoding_for_model("gpt-4")
         num_tokens = 0
         for message in self.conversation[convo_id]:
             # every message follows <im_start>{role/name}\n{content}<im_end>\n
-            num_tokens += 4
+            num_tokens += 3
             for key, value in message.items():
                 num_tokens += len(encoding.encode(value))
                 if key == "name":  # if there's a name, the role is omitted
-                    num_tokens += -1  # role is always required and always 1 token
-        num_tokens += 2  # every reply is primed with <im_start>assistant
+                    num_tokens += 1
+        num_tokens += 3  # every reply is primed with <im_start>assistant
         return num_tokens
 
     def get_max_tokens(self, convo_id: str) -> int:
         """
         Get remaining tokens
         """
-        if self.engine == "gpt-3.5-turbo":
-            return 4000 - self.get_token_count(convo_id)
-        elif self.engine == "gpt-4":
-            return 8000 - self.get_token_count(convo_id)
+        return 2000
 
     def switch_engine(self):
-        if self.engine == "gpt-3.5-turbo" and getattr(self, "engine_gpt-4"):
+        if self.engine == "gpt-4-turbo" and getattr(self, "engine_gpt-4"):
             self.engine = "gpt-4"
             print("switch success")
-        elif self.engine == "gpt-4" and getattr(self, "engine_gpt-3.5-turbo"):
-            self.engine = "gpt-3.5-turbo"
+        elif self.engine == "gpt-4" and getattr(self, "engine_gpt-4-turbo"):
+            self.engine = "gpt-4-turbo"
             print("switch success")
         else:
             print("switch fail")
@@ -173,6 +171,7 @@ class Chatbot:
         full_response: str = ""
         model: str = ""
         for resp in response:
+            time.sleep(0.03)
             model = resp.get("model")
             choices = resp.get("choices", None)
             if not choices:
@@ -219,7 +218,7 @@ class Chatbot:
             {"role": "system", "content": system_prompt or self.system_prompt},
         ]
 
-        if self.get_token_count(convo_id) > self.max_tokens["gpt-3.5-turbo"]:
+        if self.get_token_count(convo_id) > min(self.max_tokens.values()):
             raise Exception("System prompt is too long")
 
     def save(self, file: str, *keys: str) -> None:

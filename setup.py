@@ -6,7 +6,7 @@ PATH = Path("README.md")
 
 setup(
     name="azureChatGPT",
-    version="0.0.5",
+    version="0.0.6",
     description="ChatGPT is a reverse engineering of Azure ChatGPT API",
     long_description=open(PATH, encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -22,7 +22,7 @@ setup(
         "prompt-toolkit",
         "tiktoken>=0.3.3",
         "aiohttp==3.8.4",
-        "openai>=0.27.2"
+        "openai==0.28.1"
     ],
     classifiers=[
         "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
