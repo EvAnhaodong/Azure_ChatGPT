@@ -7,8 +7,12 @@ import os
 import sys
 from typing import NoReturn
 import time
+from itertools import cycle
 
-import openai
+import base64
+from mimetypes import guess_type
+
+from openai import AzureOpenAI
 import tiktoken
 
 from .utils import create_completer
@@ -28,9 +32,8 @@ class Chatbot:
         api_key: str = "",
         engine: str = "",
         api_base: str = "",
-        api_type: str = "azure",
-        api_version: str = "2023-12-01-preview",
-        max_tokens: dict = {"gpt-4-turbo": 20000, "gpt-4":6000},
+        api_version: str = "2024-02-01",
+        max_tokens: dict = {"gpt-4-turbo": 6000, "gpt-4":4000,"gpt-4o":6000},
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -45,7 +48,6 @@ class Chatbot:
         self.top_p = top_p
         self.presence_penalty = presence_penalty
         self.frequency_penalty = frequency_penalty
-        self.api_type = api_type
         self.api_version = api_version
         self.api_key = api_key
         self.api_base = api_base
@@ -62,10 +64,11 @@ class Chatbot:
         }
 
     def init_openai(self):
-        openai.api_type = self.api_type
-        openai.api_version = self.api_version
-        openai.api_key = self.api_key
-        openai.api_base = self.api_base
+        self.api = AzureOpenAI(
+            api_key=self.api_key,
+            api_version=self.api_version,
+            azure_endpoint=f"{self.api_base}"
+        )
 
     def add_to_conversation(
         self,
@@ -73,15 +76,21 @@ class Chatbot:
         role: str,
         name: str = "",
         convo_id: str = "default",
+        image: str = "",
     ) -> None:
         """
         Add a message to the conversation
         """
+        if image:
+            content=[{"type": "text", "text": message}, {"type": "image_url", "image_url": {"url": image}}]
+        else:
+            content=[{"type": "text", "text": message}]
+
         if not name:
-            self.conversation[convo_id].append({"role": role, "content": message})
+            self.conversation[convo_id].append({"role": role, "content": content})
         else:
             self.conversation[convo_id].append(
-                {"role": role, "name": name, "content": message}
+                {"role": role, "name": name, "content": content}
             )
 
     def __truncate_conversation(self, convo_id: str = "default") -> None:
@@ -95,7 +104,7 @@ class Chatbot:
 
         while True:
             if (
-                self.get_token_count("current") > self.max_tokens[self.engine]
+                self.get_token_count("current", skip_system = True) > self.max_tokens[self.engine]
                 and len(self.conversation["current"]) > 1
             ):
                 # Don't remove the first message
@@ -104,43 +113,45 @@ class Chatbot:
                 break
 
     # https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-    def get_token_count(self, convo_id: str = "default") -> int:
+    def get_token_count(self, convo_id: str = "default", skip_system = False) -> int:
         """
         Get token count
         """
-        encoding = tiktoken.encoding_for_model("gpt-4")
+        encoding = tiktoken.encoding_for_model("gpt-4o")
         num_tokens = 0
         for message in self.conversation[convo_id]:
             # every message follows <im_start>{role/name}\n{content}<im_end>\n
+            if skip_system and message['role'] == "system":
+                continue
             num_tokens += 3
             for key, value in message.items():
-                num_tokens += len(encoding.encode(value))
+                if isinstance(value,list):
+                    for content in value:
+                        num_tokens += len(encoding.encode(content.get("text", "")))
+                else:
+                    num_tokens += len(encoding.encode(value))
                 if key == "name":  # if there's a name, the role is omitted
                     num_tokens += 1
         num_tokens += 3  # every reply is primed with <im_start>assistant
         return num_tokens
 
-    def get_max_tokens(self, convo_id: str) -> int:
+    def get_max_tokens(self, convo_id: str = "default") -> int:
         """
         Get remaining tokens
         """
         return 2000
 
     def switch_engine(self):
-        if self.engine == "gpt-4-turbo" and getattr(self, "engine_gpt-4"):
-            self.engine = "gpt-4"
-            print("switch success")
-        elif self.engine == "gpt-4" and getattr(self, "engine_gpt-4-turbo"):
-            self.engine = "gpt-4-turbo"
-            print("switch success")
-        else:
-            print("switch fail")
+        self.engine = next(self.engine_list)
+        self.__dict__.update(getattr(self, "engine_" + self.engine))
+        self.init_openai()
 
     def ask_stream(
         self,
         prompt: str,
         role: str = "user",
         convo_id: str = "default",
+        image:str = "",
         **kwargs,
     ) -> str:
         """
@@ -149,12 +160,12 @@ class Chatbot:
         # Make conversation if it doesn't exist
         if convo_id not in self.conversation:
             self.reset(convo_id=convo_id, system_prompt=self.system_prompt)
-        self.add_to_conversation(prompt, role, convo_id=convo_id)
+        self.add_to_conversation(prompt, role, convo_id=convo_id, image=image)
         self.__truncate_conversation(convo_id=convo_id)
-        response = openai.ChatCompletion.create(
+        response = self.api.chat.completions.create(
             messages=self.conversation["current"],
             temperature=kwargs.get("temperature", self.temperature),
-            max_tokens=self.get_max_tokens(convo_id="current"),
+            max_tokens=self.get_max_tokens(),
             top_p=kwargs.get("top_p", self.top_p),
             frequency_penalty=kwargs.get(
                 "frequency_penalty",
@@ -164,40 +175,42 @@ class Chatbot:
                 "presence_penalty",
                 self.presence_penalty,
             ),
-            engine=getattr(self, "engine_" + self.engine),
+            model=self.model,
             stream=True,
         )
-        response_role: str = ""
+        response_role: str = "assistant"
         full_response: str = ""
         model: str = ""
         for resp in response:
-            time.sleep(0.03)
-            model = resp.get("model")
-            choices = resp.get("choices", None)
+            time.sleep(0.01)
+            model = resp.model
+            choices = resp.choices
             if not choices:
                 continue
-            delta = choices[0].get("delta", None)
+            delta = choices[0].delta
             if not delta:
                 continue
-            if "role" in delta:
-                response_role = delta["role"]
-            if "content" in delta:
-                content = delta["content"]
-                full_response += content
-                yield content
+            content = delta.content
+            if not content:
+                continue
+            full_response += content
+            yield content
         self.add_to_conversation(full_response, response_role, model, convo_id=convo_id)
+        # print(self.conversation['current'])
 
     def ask(
         self,
         prompt: str,
         role: str = "user",
         convo_id: str = "default",
+        image:str = "",
         **kwargs,
     ) -> str:
         response = self.ask_stream(
             prompt=prompt,
             role=role,
             convo_id=convo_id,
+            image=image,
             **kwargs,
         )
         full_response: str = "".join(response)
@@ -241,6 +254,9 @@ class Chatbot:
         with open(file, encoding="utf-8") as f:
             loaded_config = yaml.load(f, Loader=yaml.FullLoader)
             self.__dict__.update(loaded_config)
+            self.engine_list = cycle(self.engine_list)
+            self.engine = next(self.engine_list)
+            self.__dict__.update(getattr(self, "engine_" + self.engine))
             self.init_openai()
 
 
@@ -391,6 +407,12 @@ def main() -> NoReturn:
         action="store_true",
         help="Disable streaming",
     )
+    parser.add_argument(
+        "--image",
+        type=str,
+        default=False,
+        help="image path",
+    )
     args = parser.parse_args()
 
     # Initialize chatbot
@@ -429,6 +451,9 @@ def main() -> NoReturn:
     if args.submit_key:
         key_bindings = create_keybindings(args.submit_key)
     # Start chat
+    if args.image:
+        image=f"data:{guess_type(args.image)[0]};base64,{base64.b64encode(open(args.image, 'rb').read()).decode('utf-8')}"
+
     while True:
         print()
         try:
@@ -452,6 +477,10 @@ def main() -> NoReturn:
         if args.no_stream:
             print(chatbot.ask(prompt, "user"))
         else:
-            for query in chatbot.ask_stream(prompt):
-                print(query, end="", flush=True)
+            if args.image and "[image]" in prompt:
+                for query in chatbot.ask_stream(prompt,image=image):
+                    print(query, end="", flush=True)
+            else:
+                for query in chatbot.ask_stream(prompt):
+                    print(query, end="", flush=True)
         print()
