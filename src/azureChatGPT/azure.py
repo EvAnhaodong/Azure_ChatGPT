@@ -166,6 +166,13 @@ class Chatbot:
         else:
             self.init_openai()
 
+    def change_engine(self,engine):
+        if engine in self.engine_list:
+            self.__dict__.update(getattr(self, "engine_" + engine))
+            self.init_openai()
+        else:
+            raise Exception("Wrong engine")
+
     def ask_stream(
         self,
         prompt: str,
