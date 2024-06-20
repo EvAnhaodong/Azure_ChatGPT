@@ -19,6 +19,7 @@ setup(
     py_modules=["azure"],
     install_requires=[
         "pyyaml",
+        "boto3",
         "prompt-toolkit",
         "tiktoken>=0.7.0",
         "aiohttp==3.8.4",
