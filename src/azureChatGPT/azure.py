@@ -13,6 +13,8 @@ import base64
 from mimetypes import guess_type
 
 from openai import AzureOpenAI
+import boto3
+import json
 import tiktoken
 
 from .utils import create_completer
@@ -33,7 +35,7 @@ class Chatbot:
         engine: str = "",
         api_base: str = "",
         api_version: str = "2024-02-01",
-        max_tokens: dict = {"gpt-4-turbo": 6000, "gpt-4":4000,"gpt-4o":6000},
+        max_tokens: dict = {"gpt-4-turbo": 6000, "gpt-4":4000,"gpt-4o":6000,"claude3_haiku":6000, "claude3_sonnet":6000},
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -69,6 +71,11 @@ class Chatbot:
             api_version=self.api_version,
             azure_endpoint=f"{self.api_base}"
         )
+    
+
+    def init_claude(self):
+        self.api = boto3.client("bedrock-runtime", region_name="us-east-1")
+
 
     def add_to_conversation(
         self,
@@ -82,11 +89,22 @@ class Chatbot:
         Add a message to the conversation
         """
         if image:
-            content=[{"type": "text", "text": message}, {"type": "image_url", "image_url": {"url": image}}]
+            image_format = guess_type(image)[0]
+            image_base64 = base64.b64encode(open(image, 'rb').read()).decode('utf-8')
+            if 'claude3' in self.engine:
+                content=[{"type": "text", "text": message}, 
+                        {"type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": f"{image_format}",
+                                "data": f"{image_base64}",
+                    }}]
+            else:
+                content=[{"type": "text", "text": message}, {"type": "image_url", "image_url": {"url": f"data:{image_format};base64,{image_base64}"}}]
         else:
             content=[{"type": "text", "text": message}]
 
-        if not name:
+        if not name or 'claude3' in self.engine:
             self.conversation[convo_id].append({"role": role, "content": content})
         else:
             self.conversation[convo_id].append(
@@ -101,7 +119,6 @@ class Chatbot:
             dict((key, sentence[key]) for key in ["role", "content"])
             for sentence in self.conversation[convo_id]
         ]
-
         while True:
             if (
                 self.get_token_count("current", skip_system = True) > self.max_tokens[self.engine]
@@ -144,12 +161,18 @@ class Chatbot:
     def switch_engine(self):
         self.engine = next(self.engine_list)
         self.__dict__.update(getattr(self, "engine_" + self.engine))
-        self.init_openai()
+        if 'claude3' in self.engine:
+            self.init_claude()
+        else:
+            self.init_openai()
 
     def change_engine(self,engine):
         if engine in self.engine_list:
             self.__dict__.update(getattr(self, "engine_" + engine))
-            self.init_openai()
+            if 'claude3' in engine:
+                self.init_claude()
+            else:
+                self.init_openai()
         else:
             raise Exception("Wrong engine")
 
@@ -169,39 +192,63 @@ class Chatbot:
             self.reset(convo_id=convo_id, system_prompt=self.system_prompt)
         self.add_to_conversation(prompt, role, convo_id=convo_id, image=image)
         self.__truncate_conversation(convo_id=convo_id)
-        response = self.api.chat.completions.create(
-            messages=self.conversation["current"],
-            temperature=kwargs.get("temperature", self.temperature),
-            max_tokens=self.get_max_tokens(),
-            top_p=kwargs.get("top_p", self.top_p),
-            frequency_penalty=kwargs.get(
-                "frequency_penalty",
-                self.frequency_penalty,
-            ),
-            presence_penalty=kwargs.get(
-                "presence_penalty",
-                self.presence_penalty,
-            ),
-            model=self.model,
-            stream=True,
-        )
         response_role: str = "assistant"
         full_response: str = ""
         model: str = ""
-        for resp in response:
-            time.sleep(0.01)
-            model = resp.model
-            choices = resp.choices
-            if not choices:
-                continue
-            delta = choices[0].delta
-            if not delta:
-                continue
-            content = delta.content
-            if not content:
-                continue
-            full_response += content
-            yield content
+        if 'claude3' in self.engine:
+            body = json.dumps({
+                        "system": self.conversation["current"][0]['content'],
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "max_tokens": self.get_max_tokens(),
+                        "top_p": kwargs.get("top_p", self.top_p),
+                        "temperature": kwargs.get("temperature", self.temperature),
+                        "messages": self.conversation["current"][1:]
+                    }, ensure_ascii=False)
+            response = self.api.invoke_model_with_response_stream(
+                            body=body, modelId=self.model)
+            for resp in response.get('body'):
+                time.sleep(0.01)
+                model = self.model
+                chunk = resp.get('chunk')
+                if chunk:
+                    if 'delta' in json.loads(chunk.get('bytes').decode()).keys():
+                            content = json.loads(chunk.get('bytes').decode()).get('delta').get('text')
+                            if content:
+                                full_response+=content
+                                yield content
+
+        else:
+            response = self.api.chat.completions.create(
+                messages=self.conversation["current"],
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=self.get_max_tokens(),
+                top_p=kwargs.get("top_p", self.top_p),
+                frequency_penalty=kwargs.get(
+                    "frequency_penalty",
+                    self.frequency_penalty,
+                ),
+                presence_penalty=kwargs.get(
+                    "presence_penalty",
+                    self.presence_penalty,
+                ),
+                model=self.model,
+                stream=True,
+            )
+            for resp in response:
+                time.sleep(0.01)
+                model = resp.model
+                choices = resp.choices
+                if not choices:
+                    continue
+                delta = choices[0].delta
+                if not delta:
+                    continue
+                content = delta.content
+                if not content:
+                    continue
+                full_response += content
+                yield content
+
         self.add_to_conversation(full_response, response_role, model, convo_id=convo_id)
         # print(self.conversation['current'])
 
@@ -264,7 +311,10 @@ class Chatbot:
             self.engine_list = cycle(self.engine_list)
             self.engine = next(self.engine_list)
             self.__dict__.update(getattr(self, "engine_" + self.engine))
-            self.init_openai()
+            if 'claude3' in self.engine:
+                self.init_claude()
+            else:
+                self.init_openai()
 
 
 class ChatbotCLI(Chatbot):
@@ -458,8 +508,6 @@ def main() -> NoReturn:
     if args.submit_key:
         key_bindings = create_keybindings(args.submit_key)
     # Start chat
-    if args.image:
-        image=f"data:{guess_type(args.image)[0]};base64,{base64.b64encode(open(args.image, 'rb').read()).decode('utf-8')}"
 
     while True:
         print()
@@ -485,7 +533,7 @@ def main() -> NoReturn:
             print(chatbot.ask(prompt, "user"))
         else:
             if args.image and "[image]" in prompt:
-                for query in chatbot.ask_stream(prompt,image=image):
+                for query in chatbot.ask_stream(prompt,image=args.image):
                     print(query, end="", flush=True)
             else:
                 for query in chatbot.ask_stream(prompt):
