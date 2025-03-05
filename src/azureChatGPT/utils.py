@@ -91,3 +91,24 @@ def get_filtered_keys_from_object(obj: object, *keys: str) -> Set[str]:
         )
     # Only return specified keys that are in class_keys
     return {key for key in keys if key in class_keys}
+
+
+def load_genes(file_path):
+    genes = {}
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line in file:
+            parts = line.strip().split('\t')
+            gene_name = parts[0].strip()
+            omim_id = parts[1].strip()
+            genes[gene_name] = omim_id
+    return genes
+
+def find_genes_in_text(text, genes):
+    found_genes = {}
+    for gene, omim_id in genes.items():
+        # 使用正则表达式进行贪婪匹配，确保匹配整个基因名
+        # 考虑到中文字符，使用 \b 可能不适用，改用更具体的边界匹配
+        matches = re.findall(r'(?<![A-Za-z0-9])' + re.escape(gene) + r'(?![A-Za-z0-9])', text)
+        if matches:
+            found_genes[gene] = omim_id
+    return found_genes

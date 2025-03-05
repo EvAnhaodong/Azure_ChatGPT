@@ -6,7 +6,7 @@ PATH = Path("README.md")
 
 setup(
     name="azureChatGPT",
-    version="0.0.7",
+    version="0.0.8",
     description="ChatGPT is a reverse engineering of Azure ChatGPT API",
     long_description=open(PATH, encoding="utf-8").read(),
     long_description_content_type="text/markdown",

@@ -1,6 +1,7 @@
 """
 A simple wrapper for the official azure ChatGPT API
 """
+import re
 import argparse
 import yaml
 import os
@@ -12,7 +13,7 @@ from itertools import cycle
 import base64
 from mimetypes import guess_type
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 import boto3
 import json
 import tiktoken
@@ -22,6 +23,7 @@ from .utils import create_keybindings
 from .utils import create_session
 from .utils import get_filtered_keys_from_object
 from .utils import get_input
+from .utils import load_genes, find_genes_in_text
 
 
 class Chatbot:
@@ -35,7 +37,7 @@ class Chatbot:
         engine: str = "",
         api_base: str = "",
         api_version: str = "2024-02-01",
-        max_tokens: dict = {"gpt-4-turbo": 6000, "gpt-4":4000,"gpt-4o":50000,"claude3_haiku":6000, "claude3_sonnet":6000},
+        max_tokens: dict = {"gpt-4-turbo": 6000, "gpt-4":4000,"gpt-4o":50000,"claude3_haiku":6000, "claude3_sonnet":6000, "deepseek-v3": 50000,"deepseek-r1": 50000},
         temperature: float = 0.5,
         top_p: float = 1.0,
         presence_penalty: float = 0.0,
@@ -66,10 +68,14 @@ class Chatbot:
         }
 
     def init_openai(self):
-        self.api = AzureOpenAI(
+        # self.api = AzureOpenAI(
+        #     api_key=self.api_key,
+        #     api_version=self.api_version,
+        #     azure_endpoint=f"{self.api_base}"
+        # )
+        self.api = OpenAI(
             api_key=self.api_key,
-            api_version=self.api_version,
-            azure_endpoint=f"{self.api_base}"
+            base_url=f"{self.api_base}"
         )
     
 
@@ -81,51 +87,47 @@ class Chatbot:
         self,
         message: str,
         role: str,
-        name: str = "",
+        # name: str = "",
         convo_id: str = "default",
         image: str|list = "",
     ) -> None:
         """
         Add a message to the conversation
         """
-        if image:
-            if isinstance(image, list):
-                content=[{"type": "text", "text": message}]
-                for img in image:
-                    image_format = guess_type(img)[0]
-                    image_base64 = base64.b64encode(open(img, 'rb').read()).decode('utf-8')
-                    if 'claude3' in self.engine:
-                        content += [
-                                {"type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": f"{image_format}",
-                                        "data": f"{image_base64}",
-                            }}]
-                    else:
-                        content += [{"type": "image_url", "image_url": {"url": f"data:{image_format};base64,{image_base64}"}}]
-            else:
-                image_format = guess_type(image)[0]
-                image_base64 = base64.b64encode(open(image, 'rb').read()).decode('utf-8')
-                if 'claude3' in self.engine:
-                    content=[{"type": "text", "text": message}, 
-                            {"type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": f"{image_format}",
-                                    "data": f"{image_base64}",
-                        }}]
-                else:
-                    content=[{"type": "text", "text": message}, {"type": "image_url", "image_url": {"url": f"data:{image_format};base64,{image_base64}"}}]
-        else:
-            content=[{"type": "text", "text": message}]
+        # if image:
+        #     if isinstance(image, list):
+        #         content=[{"type": "text", "text": message}]
+        #         for img in image:
+        #             image_format = guess_type(img)[0]
+        #             image_base64 = base64.b64encode(open(img, 'rb').read()).decode('utf-8')
+        #             if 'claude3' in self.engine:
+        #                 content += [
+        #                         {"type": "image",
+        #                             "source": {
+        #                                 "type": "base64",
+        #                                 "media_type": f"{image_format}",
+        #                                 "data": f"{image_base64}",
+        #                     }}]
+        #             else:
+        #                 content += [{"type": "image_url", "image_url": {"url": f"data:{image_format};base64,{image_base64}"}}]
+        #     else:
+        #         image_format = guess_type(image)[0]
+        #         image_base64 = base64.b64encode(open(image, 'rb').read()).decode('utf-8')
+        #         if 'claude3' in self.engine:
+        #             content=[{"type": "text", "text": message}, 
+        #                     {"type": "image",
+        #                         "source": {
+        #                             "type": "base64",
+        #                             "media_type": f"{image_format}",
+        #                             "data": f"{image_base64}",
+        #                 }}]
+        #         else:
+        #             content=[{"type": "text", "text": message}, {"type": "image_url", "image_url": {"url": f"data:{image_format};base64,{image_base64}"}}]
+        # else:
+        content=[{"type": "text", "text": message}]
 
-        if not name or 'claude3' in self.engine:
-            self.conversation[convo_id].append({"role": role, "content": content})
-        else:
-            self.conversation[convo_id].append(
-                {"role": role, "name": name, "content": content}
-            )
+        self.conversation[convo_id].append({"role": role, "content": content})
+
 
     def __truncate_conversation(self, convo_id: str = "default") -> None:
         """
@@ -150,7 +152,7 @@ class Chatbot:
         """
         Get token count
         """
-        encoding = tiktoken.encoding_for_model("gpt-4o")
+        encoding = tiktoken.encoding_for_model("gpt-4")
         num_tokens = 0
         for message in self.conversation[convo_id]:
             # every message follows <im_start>{role/name}\n{content}<im_end>\n
@@ -160,6 +162,8 @@ class Chatbot:
             for key, value in message.items():
                 if isinstance(value,list):
                     for content in value:
+                        if "上传的文件名为" in content.get("text", "") and len(content.get("text", "")) < 50000:
+                            continue
                         num_tokens += len(encoding.encode(content.get("text", "")))
                 else:
                     num_tokens += len(encoding.encode(value))
@@ -234,38 +238,68 @@ class Chatbot:
                                 yield content
 
         else:
-            response = self.api.chat.completions.create(
-                messages=self.conversation["current"],
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=self.get_max_tokens(),
-                top_p=kwargs.get("top_p", self.top_p),
-                frequency_penalty=kwargs.get(
-                    "frequency_penalty",
-                    self.frequency_penalty,
-                ),
-                presence_penalty=kwargs.get(
-                    "presence_penalty",
-                    self.presence_penalty,
-                ),
-                model=self.model,
-                stream=True,
-            )
-            for resp in response:
-                time.sleep(0.01)
-                model = resp.model
-                choices = resp.choices
-                if not choices:
-                    continue
-                delta = choices[0].delta
-                if not delta:
-                    continue
-                content = delta.content
-                if not content:
-                    continue
-                full_response += content
-                yield content
+            try:
+                # 阿里百炼的api限制, 如果content是list, 则需要将content转换为text
+                if "deepseek" in self.model:
+                    for message in self.conversation["current"]:
+                        if isinstance(message.get("content"), list):
+                            for content in message["content"]:
+                                if content.get("text", "") != "":
+                                    message["content"] = content["text"]
+                response = self.api.chat.completions.create(
+                    messages=self.conversation["current"],
+                    temperature=kwargs.get("temperature", self.temperature),
+                    max_tokens=self.get_max_tokens(),
+                    top_p=kwargs.get("top_p", self.top_p),
+                    frequency_penalty=kwargs.get(
+                        "frequency_penalty",
+                        self.frequency_penalty,
+                    ),
+                    presence_penalty=kwargs.get(
+                        "presence_penalty",
+                        self.presence_penalty,
+                    ),
+                    model=self.model,
+                    stream=True,
+                )
+                if self.model == 'deepseek-r1':
+                    content = "\n"+"="*20+"思考过程"+"="*20+"\n"
+                    full_response += content
+                    yield content
+                is_answering = False
+                for chunk in response:
+                    if self.model == 'deepseek-r1':
+                        if chunk.choices[0].delta.reasoning_content == "" and chunk.choices[0].delta.content == "":
+                            pass
+                        else:
+                            # 如果思考结果为空，则开始打印完整回复
+                            if chunk.choices[0].delta.reasoning_content is None and is_answering == False:
+                                content = "\n"+"="*20+"完整回复"+"="*20+"\n"
+                                full_response += content
+                                yield content
+                                # 防止打印多个“完整回复”标记
+                                is_answering = True
+                            # 如果思考过程不为空，则打印思考过程
+                            if chunk.choices[0].delta.reasoning_content != "" and chunk.choices[0].delta.reasoning_content is not None:
+                                content = chunk.choices[0].delta.reasoning_content
+                                full_response += content
+                                yield content
+                            # 如果回复不为空，则打印回复。回复一般会在思考过程结束后返回
+                            elif chunk.choices[0].delta.content != "" and chunk.choices[0].delta.content is not None:
+                                content = chunk.choices[0].delta.content
+                                full_response += content
+                                yield content
+                    else:
+                        content = chunk.choices[0].delta.content
+                        if content is not None:
+                            full_response += content
+                            yield content
+            except:
+                response = "服务器繁忙，请稍后重试。"
+                for content in response:
+                    yield content
 
-        self.add_to_conversation(full_response, response_role, model, convo_id=convo_id)
+        self.add_to_conversation(full_response, response_role, convo_id=convo_id)
         # print(self.conversation['current'])
 
     def ask(
@@ -331,6 +365,71 @@ class Chatbot:
                 self.init_claude()
             else:
                 self.init_openai()
+    
+
+    def get_recommend_question(
+        self, 
+        convo_id: str = "default",
+        **kwargs,):
+        if convo_id not in self.conversation:
+            return "Please start a conversation first"
+        recommend_prompt = '''任务：根据前面的对话,生成三个用户可能的后续提问,保证每个问题不超过20个字 
+        结果输出为JSON格式:
+    {{"questions": ["question1", "question2", "question3"]}}'''
+        recommend_conversation_list = self.conversation[convo_id][-2:]
+        recommend_conversation_list.append({"role": "user", "content": recommend_prompt})
+        full_response = ""
+        if 'claude3' in self.engine:
+            return '{"questions": []}'
+        else:
+            response = self.api.chat.completions.create(
+                messages=recommend_conversation_list,
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=self.get_max_tokens(),
+                top_p=kwargs.get("top_p", self.top_p),
+                frequency_penalty=kwargs.get(
+                    "frequency_penalty",
+                    self.frequency_penalty,
+                ),
+                presence_penalty=kwargs.get(
+                    "presence_penalty",
+                    self.presence_penalty,
+                ),
+                model=self.model,
+                stream=True,
+                # response_format={ "type": "json_object" },
+            )
+            for resp in response:
+                time.sleep(0.01)
+                choices = resp.choices
+                if not choices:
+                    continue
+                delta = choices[0].delta
+                if not delta:
+                    continue
+                content = delta.content
+                if not content:
+                    continue
+                full_response += content
+        # print(recommend_conversation_list)
+        return full_response
+
+
+    def get_gene_disease_info(
+        self, 
+        convo_id: str = "default",
+        genes_file_path: str ="",
+        ):
+        if convo_id not in self.conversation:
+            return "Please start a conversation first"
+        conversation_to_parse = str(self.conversation[convo_id][-2:])
+        genes = load_genes(genes_file_path)
+        # Find genes in the text
+        found_genes = find_genes_in_text(conversation_to_parse, genes)
+        
+        # Output the found genes and their OMIM IDs
+        for gene, omim_id in found_genes.items():
+            print(f"{gene}: https://omim.org/entry/{omim_id}")
 
 
 class ChatbotCLI(Chatbot):
